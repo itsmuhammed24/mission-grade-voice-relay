@@ -1,3 +1,3 @@
 # Mission Grade Voice Relay
 
-<img src="architecture.jpg" width="800" />
+<img src="img/architecture.jpg" width="800" />
