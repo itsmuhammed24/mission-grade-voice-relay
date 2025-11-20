@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1"
+  />
+  <title>Mission Grade Voice Relay - Mobile</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "San Francisco",
+        Arial, sans-serif;
+      background: radial-gradient(circle at top, #222 0, #050505 60%);
+      color: #f5f5f5;
+    }
+
+    .container {
+      max-width: 420px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    h1 span.emoji {
+      font-size: 32px;
+    }
+
+    .subtitle {
+      opacity: 0.75;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: rgba(20, 20, 20, 0.9);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+      margin-bottom: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      margin-bottom: 8px;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      margin-right: 6px;
+      background: #777;
+    }
+
+    .status-dot.active {
+      background: #2ecc71;
+      box-shadow: 0 0 6px rgba(46, 204, 113, 0.8);
+    }
+
+    button {
+      padding: 16px;
+      font-size: 18px;
+      border-radius: 14px;
+      border: none;
+      width: 100%;
+      margin-top: 8px;
+      margin-bottom: 4px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    #startBtn {
+      background: linear-gradient(135deg, #27ae60, #2ecc71);
+      color: #fff;
+    }
+
+    #startBtn:disabled {
+      opacity: 0.5;
+    }
+
+    #stopBtn {
+      background: linear-gradient(135deg, #c0392b, #e74c3c);
+      color: #fff;
+    }
+
+    #stopBtn:disabled {
+      opacity: 0.4;
+    }
+
+    .log-box,
+    .transcription-box {
+      font-size: 14px;
+      background: #111;
+      border-radius: 12px;
+      padding: 10px 12px;
+      height: 140px;
+      overflow-y: auto;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .log-line {
+      font-size: 12px;
+      opacity: 0.85;
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .log-line.error {
+      color: #ff6b6b;
+    }
+
+    .trans-line {
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>
+      <span class="emoji">🎙</span>
+      <span>Mission Grade Voice Relay</span>
+    </h1>
+    <div class="subtitle">Capture · Transcription · Analyse tactique</div>
+
+    <!-- Recording card -->
+    <div class="card">
+      <div class="pill">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-text">En attente…</span>
+      </div>
+
+      <button id="startBtn">Démarrer l’enregistrement</button>
+      <button id="stopBtn" disabled>Arrêter</button>
+    </div>
+
+    <!-- Logs -->
+    <div class="card">
+      <div class="status">Événements</div>
+      <div id="log" class="log-box"></div>
+    </div>
+
+    <!-- Transcriptions -->
+    <div class="card">
+      <div class="status">Transcription (Whisper)</div>
+      <div id="transcriptions" class="transcription-box"></div>
+    </div>
+
+    <!-- Tactical LLM analysis -->
+    <div class="card">
+      <div class="status">Analyse tactique (LLM)</div>
+      <div id="analysis-box" class="transcription-box"></div>
+    </div>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let chunks = [];
+    let sendInterval = null;
+    let ws = null;
+
+    const SERVER_URL = "/audio-chunk";
+
+    const logBox = document.getElementById("log");
+    const transBox = document.getElementById("transcriptions");
+    const analysisBox = document.getElementById("analysis-box");
+
+    function log(msg, error = false) {
+      const line = document.createElement("div");
+      line.className = "log-line" + (error ? " error" : "");
+      line.textContent = msg;
+      logBox.appendChild(line);
+      if (logBox.children.length > 50) logBox.removeChild(logBox.firstChild);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function addTranscription(text) {
+      const line = document.createElement("div");
+      line.className = "trans-line";
+      line.textContent = text;
+      transBox.appendChild(line);
+      if (transBox.children.length > 50) transBox.removeChild(transBox.firstChild);
+      transBox.scrollTop = transBox.scrollHeight;
+    }
+
+    function addAnalysis(a) {
+      const line = document.createElement("div");
+      line.className = "trans-line";
+      line.innerHTML = `
+        <b>Résumé:</b> ${a.summary}<br>
+        <b>Unité:</b> ${a.unit || "-"} |
+        <b>Intent:</b> ${a.intent || "-"}<br>
+        <b>Alerte:</b> ${a.alert ? "🚨 OUI" : "—"}<br>
+        <b>Coord:</b> ${a.coordinates || "-"}<br>
+      `;
+      analysisBox.appendChild(line);
+      if (analysisBox.children.length > 50) analysisBox.removeChild(analysisBox.firstChild);
+      analysisBox.scrollTop = analysisBox.scrollHeight;
+    }
+
+    function setStatus(text, active) {
+      document.getElementById("status-text").textContent = text;
+      const dot = document.getElementById("status-dot");
+      if (active) dot.classList.add("active");
+      else dot.classList.remove("active");
+    }
+
+    function setupWebSocket() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const url = `${proto}://${location.host}/ws`;
+      ws = new WebSocket(url);
+
+      ws.onopen = () => log("WebSocket connecté");
+      ws.onclose = () => log("WebSocket fermé", true);
+      ws.onerror = () => log("Erreur WebSocket", true);
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === "analysis") {
+            addTranscription(data.text);
+            addAnalysis(data.analysis);
+          }
+        } catch {
+          addTranscription(event.data);
+        }
+      };
+    }
+
+    async function sendChunk() {
+      if (chunks.length === 0) return;
+
+      const blob = new Blob(chunks, { type: "audio/mp4" });
+      chunks = [];
+
+      const formData = new FormData();
+      formData.append("file", blob, "audio.mp4");
+
+      try {
+        const res = await fetch(SERVER_URL, {
+          method: "POST",
+          body: formData,
+        });
+        const json = await res.json();
+        log(`📡 Chunk envoyé (${json.size} bytes)`);
+      } catch (err) {
+        log("Erreur réseau : " + err, true);
+        setStatus("Erreur réseau", false);
+      }
+    }
+
+    document.getElementById("startBtn").onclick = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+
+        let options = { mimeType: "audio/mp4" };
+        if (!MediaRecorder.isTypeSupported("audio/mp4")) {
+          options = { mimeType: "audio/mp4; codecs=mp4a.40.2" };
+        }
+
+        mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.start(2000);
+
+        sendInterval = setInterval(sendChunk, 2100);
+
+        setStatus("Enregistrement…", true);
+        log("🎙 Enregistrement démarré");
+
+        document.getElementById("startBtn").disabled = true;
+        document.getElementById("stopBtn").disabled = false;
+      } catch (err) {
+        log("Erreur accès micro : " + err, true);
+        setStatus("Erreur micro", false);
+      }
+    };
+
+    document.getElementById("stopBtn").onclick = () => {
+      try { mediaRecorder.stop(); } catch {}
+      clearInterval(sendInterval);
+
+      setStatus("En attente…", false);
+      log("🛑 Enregistrement arrêté");
+
+      document.getElementById("startBtn").disabled = false;
+      document.getElementById("stopBtn").disabled = true;
+    };
+
+    window.onload = setupWebSocket;
+  </script>
+</body>
+</html>
