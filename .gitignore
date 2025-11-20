@@ -55,7 +55,6 @@ temp/
 *.fdb_latexmk
 *.fls
 *.pdf
-*jpg
 
 node_modules/
 npm-debug.log
