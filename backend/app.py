@@ -16,7 +16,7 @@ from llm import analyze_text
 
 app = FastAPI()
 
-# CORS (au cas où tu mixes d'autres front plus tard)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
