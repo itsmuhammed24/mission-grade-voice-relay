@@ -17,12 +17,7 @@ model = WhisperModel(
 )
 
 def transcribe_audio_bytes(audio_bytes: bytes, language: str = "fr") -> str:
-    """
-    1. Sauvegarde le chunk audio dans un fichier temporaire
-    2. Transcrit avec Whisper (avec VAD activé)
-    3. Renvoie le texte
-    """
-  
+    
     tmp_dir = tempfile.gettempdir()
     tmp_name = os.path.join(tmp_dir, f"{uuid.uuid4()}.mp4")
 
